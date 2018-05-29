@@ -90,10 +90,10 @@ for i in indicators:
 #
 # Construct a list of data values to output.
 #
-output = { 'dataValueSet': [] }
+output = { 'dataValues': [] }
 
 def putOut(orgUnit, dataElement, value):
-	output['dataValueSet'].append( {
+	output['dataValues'].append( {
 		'attributeOptionCombo': defaultCoc,
 		'categoryOptionCombo': defaultCoc,
 		'dataElement': dataElement,
@@ -102,7 +102,6 @@ def putOut(orgUnit, dataElement, value):
 		'value': str( value )
 		} )
 
-values = output['dataValueSet']
 for parent, indicators in input.items():
 	for indicator, orgUnits in indicators.items():
 		uidBase = 'de' + indicator[4:]
