@@ -90,25 +90,21 @@ defaultCoc = d2get('categoryOptionCombos.json?filter=name:eq:default')['category
 input = {}
 for i in indicators:
 	if i['id'][0:4] == 'dash':
-		result = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true&includeNumDen=true')
+		result = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true')
 		if 'rows' in result:
 			for r in result['rows']:
 				indicator = r[0]
 				orgUnit = r[1]
 				period = r[2]
 				value = float( r[3] )
-				denominator = r[5]
-				if denominator:
-					parent = parentMap[orgUnit]
-					if not parent in input:
-						input[parent] = {}
-					if not indicator in input[parent]:
-						input[parent][indicator] = {}
-					if not orgUnit in input[parent][indicator]:
-						input[parent][indicator][orgUnit] = []
-					input[parent][indicator][orgUnit].append(value)
-				else:
-					print('Indicator ' + i['id'] + ' has some invalid data.')
+				parent = parentMap[orgUnit]
+				if not parent in input:
+					input[parent] = {}
+				if not indicator in input[parent]:
+					input[parent][indicator] = {}
+				if not orgUnit in input[parent][indicator]:
+					input[parent][indicator][orgUnit] = []
+				input[parent][indicator][orgUnit].append(value)
 
 #
 # Construct a list of data values to output.
