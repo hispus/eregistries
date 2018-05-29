@@ -9,6 +9,29 @@ import sys
 import statistics
 
 #
+# From a DHIS 2 system, finds all the values in the past 3 months at a specified
+# organisation unit level for indicators whose UID starts with 'dash'.
+#
+# For each such indicator, finds the average value for the past 3 months at
+# in each organisation unit at the specified level, and compares this average
+# value with the average values of other organisation units at the same level
+# having the same parent.
+#
+# Based on this comparsion, writes aggregate monthly data values to the system
+# for each organisation unit that has such an an average (has any data for the
+# dash... indicator in the last 3 months). The data values are written for the
+# month most recently ended. Data is written into the following data elements,
+# based on the data element UID, where XXXXXXX is from the indicator with
+# UID dashXXXXXXX:
+#
+# deXXXXXXXAv - Three month average for this organisation unit
+# deXXXXXXXQ1 - 1 if in 25th percental for orgUnits with this parent, else 0
+# deXXXXXXXQ2 - 1 if in 50th percental for orgUnits with this parent, else 0
+# deXXXXXXXQ3 - 1 if in 75th percental for orgUnits with this parent, else 0
+# deXXXXXXXAv - percentile for this average compared with all orgUnits with same parent
+#
+
+#
 # Interpret the command line arguments
 #
 if len(sys.argv) < 5:
@@ -89,6 +112,9 @@ for i in indicators:
 
 #
 # Construct a list of data values to output.
+#
+# Note that in Python subtracting two boolean values returns an integer.
+# For example, True - False = 1, False - False = 0.
 #
 output = { 'dataValues': [] }
 
