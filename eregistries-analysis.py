@@ -25,10 +25,15 @@ import statistics
 # UID dashXXXXXXX:
 #
 # deXXXXXXXAv - Three month average for this organisation unit
-# deXXXXXXXQ1 - 1 if in 25th percental for orgUnits with this parent, else 0
-# deXXXXXXXQ2 - 1 if in 50th percental for orgUnits with this parent, else 0
-# deXXXXXXXQ3 - 1 if in 75th percental for orgUnits with this parent, else 0
-# deXXXXXXXAv - percentile for this average compared with all orgUnits with same parent
+# deXXXXXXXQ1 - 25th percentile average for all orgUnits with this parent
+# deXXXXXXXQ2 - 50th percentile average for all orgUnits with this parent
+# deXXXXXXXQ3 - 75th percentile average for all orgUnits with this parent
+# deXXXXXXXDR - percentile for this average compared with all orgUnits with same parent
+#
+# Note that the three deXXXXXXXQn data elements will have the same values for
+# all orgUnits with the same parent. This is done so that validation rules can
+# be used to compare an orgUnit's deXXXXXXXAv value with each of the deXXXXXXXQn
+# values.
 #
 
 #
@@ -109,9 +114,6 @@ for i in indicators:
 #
 # Construct a list of data values to output.
 #
-# Note that in Python subtracting two boolean values returns an integer.
-# For example, True - False = 1, False - False = 0.
-#
 output = { 'dataValues': [] }
 
 def putOut(orgUnit, dataElement, value):
@@ -130,16 +132,22 @@ for parent, indicators in input.items():
 		averages = []
 		for orgUnit, values in orgUnits.items():
 			averages.append( int( round( statistics.mean( values ) ) ) )
+		averages.sort()
 		count = len( averages )
+		q1 = averages [ int( (count-1) * .25 ) ]
+		q2 = averages [ int( (count-1) * .5 ) ]
+		q3 = averages [ int( (count-1) * .75 ) ]
+		# print( '\nParent:', orgUnit, 'averages:', averages, 'q1-3:', q1, q2, q3 )
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
 			rank = float( sum( [ a <= mean for a in averages ] ) )
 			percentile = int( round( 100 * rank / count ) )
 			putOut( orgUnit, uidBase + 'Av', mean )
-			putOut( orgUnit, uidBase + 'Q1', ( rank >= count * .25 ) - False )
-			putOut( orgUnit, uidBase + 'Q2', ( rank >= count * .5 ) - False )
-			putOut( orgUnit, uidBase + 'Q3', ( rank >= count * .75 ) - False )
+			putOut( orgUnit, uidBase + 'Q1', q1 )
+			putOut( orgUnit, uidBase + 'Q2', q2 )
+			putOut( orgUnit, uidBase + 'Q3', q3 )
 			putOut( orgUnit, uidBase + 'DR', percentile )
+			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', int(rank), 'percentile:', percentile )
 
 #
 # Import the output data into the DHIS 2 system.
