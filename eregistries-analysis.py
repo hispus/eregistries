@@ -8,6 +8,7 @@ import urllib.parse
 import sys
 import statistics
 
+####################################################################################################
 #
 # From a DHIS 2 system, finds all the values in the past 3 months at a specified
 # organisation unit level for indicators whose UID starts with 'dash'.
@@ -35,20 +36,36 @@ import statistics
 # be used to compare an orgUnit's deXXXXXXXAv value with each of the deXXXXXXXQn
 # values.
 #
+# This script can be given an argument which is the configuration file to load.
+# If not given, the default is /var/local/etc/eregistries-analysis.conf
+#
+# The configuration file is of the following form:
+#
+# {
+#   "dhis": {
+#     "baseurl": "http://localhost:8080",
+#     "username": "admin",
+#     "password": "district"
+#     "orgUnitLevel": 4
+#   }
+# }
+#
+####################################################################################################
 
 #
-# Interpret the command line arguments
+# load the configuration
 #
-if len(sys.argv) < 5:
-	print('Usage: python3 eregistries-analysis.py server username password orgUnitLevel')
-	sys.exit(1)
+if len(sys.argv) < 2:
+	configFile = '/usr/local/etc/eregistries-analysis.conf'
+else:
+    configFile = sys.argv[1]
 
-api = sys.argv[1]
-if api[-1] != '/':
-	api += '/'
-api += 'api/'
-credentials = (sys.argv[2], sys.argv[3])
-orgUnitLevel = sys.argv[4]
+config = json.loads(open(configFile).read())
+
+dhis = config['dhis']
+api = dhis['baseurl'] + '/api/'
+credentials = (dhis['username'], dhis['password'])
+orgUnitLevel = str(dhis['orgUnitLevel'])
 
 #
 # Get the names of the three monthly periods for data to collect
@@ -61,9 +78,14 @@ p3 = (today+relativedelta(months=-1)).strftime('%Y%m')
 #
 # Handy functions for accessing dhis 2
 #
-def d2get(args):
+def d2get(args, objects):
 	# print(api + args)
-	return requests.get(api + args, auth=credentials).json()
+	response = requests.get(api + args, auth=credentials)
+	try:
+		return response.json()[objects]
+	except:
+		print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response)
+		exit
 
 def d2post(args, data):
 	# print(api + args, json.dumps(data))
@@ -73,7 +95,7 @@ def d2post(args, data):
 # Get a list of the facilities we will need with parents,
 # and create a map from facilities to parents.
 #	
-facilities = d2get('organisationUnits.json?filter=level:eq:' + orgUnitLevel + '&fields=id,parent&paging=false')['organisationUnits']
+facilities = d2get('organisationUnits.json?filter=level:eq:' + orgUnitLevel + '&fields=id,parent&paging=false', 'organisationUnits')
 parentMap = {}
 for f in facilities:
 	parentMap[f['id']] = f['parent']['id']
@@ -81,12 +103,12 @@ for f in facilities:
 #
 # Get a list of all indicators.
 #
-indicators = d2get('indicators.json?fields=id&paging=false')['indicators']
+indicators = d2get('indicators.json?fields=id&paging=false', 'indicators')
 
 #
 # Get the default categoryOptionCombo (which is also the default attributeOptionCombo)
 #
-defaultCoc = d2get('categoryOptionCombos.json?filter=name:eq:default')['categoryOptionCombos'][0]['id']
+defaultCoc = d2get('categoryOptionCombos.json?filter=name:eq:default', 'categoryOptionCombos')[0]['id']
 
 #
 # Collect the input indicator data
@@ -95,21 +117,20 @@ defaultCoc = d2get('categoryOptionCombos.json?filter=name:eq:default')['category
 input = {}
 for i in indicators:
 	if i['id'][0:4] == 'dash':
-		result = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true')
-		if 'rows' in result:
-			for r in result['rows']:
-				indicator = r[0]
-				orgUnit = r[1]
-				period = r[2]
-				value = float( r[3] )
-				parent = parentMap[orgUnit]
-				if not parent in input:
-					input[parent] = {}
-				if not indicator in input[parent]:
-					input[parent][indicator] = {}
-				if not orgUnit in input[parent][indicator]:
-					input[parent][indicator][orgUnit] = []
-				input[parent][indicator][orgUnit].append(value)
+		rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
+		for r in rows:
+			indicator = r[0]
+			orgUnit = r[1]
+			period = r[2]
+			value = float( r[3] )
+			parent = parentMap[orgUnit]
+			if not parent in input:
+				input[parent] = {}
+			if not indicator in input[parent]:
+				input[parent][indicator] = {}
+			if not orgUnit in input[parent][indicator]:
+				input[parent][indicator][orgUnit] = []
+			input[parent][indicator][orgUnit].append(value)
 
 #
 # Construct a list of data values to output.
@@ -152,4 +173,6 @@ for parent, indicators in input.items():
 #
 # Import the output data into the DHIS 2 system.
 #
-print( 'Data post return status:', d2post( 'dataValueSets', output ) )
+status = d2post( 'dataValueSets', output )
+if status != '<Response [200]>':
+	print( 'Data post return status:', status )
