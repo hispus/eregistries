@@ -61,6 +61,15 @@ import traceback
 #   }
 # }
 #
+# This script writes one log file per month to /usr/local/var/log/dashcalc-yyyy-mm.log
+# (if the directory exists and it has write access). With each run, it appends one
+# line to the monthly log file giving the run ending date and time, the base URL
+# of the DHIS 2 system accessed, the time it took to execute the script in
+# (hours:minutes:seconds), and the count of data values imported, updated, ignored,
+# and deleted. For example:
+#
+# 2018-07-10 12:28:19.854 http://localhost:8080 0:02:11 {'imported': 0, 'updated': 10068, 'ignored': 0, 'deleted': 0}
+#
 # This script requires the following:
 #
 #    pip install requests
@@ -68,6 +77,8 @@ import traceback
 #    pip install numpy
 #
 ####################################################################################################
+
+startTime = datetime.datetime.now()
 
 #
 # load the configuration
@@ -80,7 +91,8 @@ else:
 config = json.loads(open(configFile).read())
 
 dhis = config['dhis']
-api = dhis['baseurl'] + '/api/'
+baseUrl = dhis['baseurl']
+api = baseUrl + '/api/'
 credentials = (dhis['username'], dhis['password'])
 orgUnitLevel = str(dhis['orgUnitLevel'])
 
@@ -157,7 +169,6 @@ if indicatorGroupSets:
 input = {}
 for i in indicators:
 	if i['id'][0:4] == 'dash':
-#	if i['id'][0:4] == 'dash' and i['id'] != 'dashDia0005' and i['id'][0:7] != 'dashHyp': # Temporary workaround
 		rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
 		for r in rows:
 			indicator = r[0]
@@ -221,9 +232,9 @@ for parent, indicators in input.items():
 			percentile = int( round( 100 * bigRank / count ) )
 			smallRank = sum( [ a > mean for a in averages ] ) + 1 # small is best
 			putOut( orgUnit, uidBase + 'Av', mean )
-			if q1: putOut( orgUnit, uidBase + 'Q1', q1 )
-			if q2: putOut( orgUnit, uidBase + 'Q2', q2 )
-			if q3: putOut( orgUnit, uidBase + 'Q3', q3 )
+			putOut( orgUnit, uidBase + 'Q1', q1 )
+			putOut( orgUnit, uidBase + 'Q2', q2 )
+			putOut( orgUnit, uidBase + 'Q3', q3 )
 			putOut( orgUnit, uidBase + 'DR', percentile )
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', smallRank )
@@ -248,5 +259,16 @@ for parent, indicators in input.items():
 # Import the output data into the DHIS 2 system.
 #
 status = d2post( 'dataValueSets', output )
-if str(status) != '<Response [200]>':
+if str(status) != '<Response [200]>' or status.json()['importCount']['ignored'] != 0:
 	print( 'Data post return status:', str(status), status.json() )
+
+#
+# Log the run in the monthly log file (if the log directory exists).
+#
+endTime = datetime.datetime.now()
+logFile = '/usr/local/var/log/dashcalc-' + today.strftime('%Y-%m') + '.log'
+logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + str(endTime-startTime).split('.', 2)[0] + ' ' + str(status.json()['importCount']) + '\n'
+try:
+	open(logFile, 'a+').write(logLine)
+except:
+	pass
