@@ -48,7 +48,7 @@ import traceback
 # 'Overall: ' follwed by the indicator group name.
 #
 # This script can be given an argument which is the configuration file to load.
-# If not given, the default is /var/local/etc/eregistries-analysis.conf
+# If not given, the default is /var/local/etc/dashcalc.conf
 #
 # The configuration file is of the following form:
 #
@@ -73,7 +73,7 @@ import traceback
 # load the configuration
 #
 if len(sys.argv) < 2:
-	configFile = '/usr/local/etc/eregistries-analysis.conf'
+	configFile = '/usr/local/etc/dashcalc.conf'
 else:
     configFile = sys.argv[1]
 
