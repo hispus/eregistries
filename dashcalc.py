@@ -56,7 +56,7 @@ import traceback
 #   "dhis": {
 #     "baseurl": "http://localhost:8080",
 #     "username": "admin",
-#     "password": "district"
+#     "password": "district",
 #     "orgUnitLevel": 4
 #   }
 # }
