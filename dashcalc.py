@@ -159,7 +159,7 @@ if groupSets:
 				continue # Path too short to have a parent - ignore
 			peerGroupMap[facility['id']] = ancestor + '-' + ouGroup['name']
 			dataOrgUnitLevels.add(facility['level'])
-			print('peerGroupMap:', facility['id'], facility['path'], ancestor + '-' + ouGroup['name']) # debug
+			# print('peerGroupMap:', facility['id'], facility['path'], ancestor + '-' + ouGroup['name']) # debug
 
 #
 # If the org unit group set 'Dashboard groups' does not exist, then
@@ -172,7 +172,7 @@ else:
 	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(orgUnitLevel+1) + '&fields=id,parent&paging=false', 'organisationUnits')
 	for facility in facilities:
 		peerGroupMap[facility['id']] = facility['parent']['id']
-		print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
+		# print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
 
 #
 # Get a list of all indicators.
