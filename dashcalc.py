@@ -118,11 +118,13 @@ p1 = (today+relativedelta(months=-3)).strftime('%Y%m')
 p2 = (today+relativedelta(months=-2)).strftime('%Y%m')
 p3 = (today+relativedelta(months=-1)).strftime('%Y%m')
 
+startOfCurrentMonth = today.replace(day=1)
+
 #
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	# print(api + args) # debug
+	print(api + args) # debug
 	response = requests.get(api + args, auth=credentials)
 	try:
 		return response.json()[objects]
@@ -146,20 +148,21 @@ def d2post(args, data):
 #
 peerGroupMap = {}
 dataOrgUnitLevels = set()
-groupSets = d2get('organisationUnitGroupSets.json?filter=name:eq:Dashboard+groups&fields=organisationUnitGroups[name,organisationUnits[id,level,path]]', 'organisationUnitGroupSets')
+groupSets = d2get('organisationUnitGroupSets.json?filter=name:eq:Dashboard+groups&fields=organisationUnitGroups[name,organisationUnits[id,level,path,closedDate]]', 'organisationUnitGroupSets')
 if groupSets:
 	for ouGroup in groupSets[0]['organisationUnitGroups']:
 		# print("ouGroup", ouGroup)
 		for facility in ouGroup['organisationUnits']:
-			if facility['level'] > orgUnitLevel:
-				ancestor = facility['path'][12*orgUnitLevel-11:12*orgUnitLevel]
-			elif facility['level'] > 1:
-				ancestor = facility['path'][-23:-12]
-			else:
-				continue # Path too short to have a parent - ignore
-			peerGroupMap[facility['id']] = ancestor + '-' + ouGroup['name']
-			dataOrgUnitLevels.add(facility['level'])
-			# print('peerGroupMap:', facility['id'], facility['path'], ancestor + '-' + ouGroup['name']) # debug
+			if 'closedDate' not in facility or facility['closedDate'] >= str(startOfCurrentMonth):
+				if facility['level'] > orgUnitLevel:
+					ancestor = facility['path'][12*orgUnitLevel-11:12*orgUnitLevel]
+				elif facility['level'] > 1:
+					ancestor = facility['path'][-23:-12]
+				else:
+					continue # Path too short to have a parent - ignore
+				peerGroupMap[facility['id']] = ancestor + '-' + ouGroup['name']
+				dataOrgUnitLevels.add(facility['level'])
+				# print('peerGroupMap:', facility['id'], facility['path'], ancestor + '-' + ouGroup['name']) # debug
 
 #
 # If the org unit group set 'Dashboard groups' does not exist, then
@@ -169,10 +172,11 @@ if groupSets:
 #
 else:
 	dataOrgUnitLevels.add(orgUnitLevel+1)
-	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(orgUnitLevel+1) + '&fields=id,parent&paging=false', 'organisationUnits')
+	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(orgUnitLevel+1) + '&fields=id,parent,closedDate&paging=false', 'organisationUnits')
 	for facility in facilities:
-		peerGroupMap[facility['id']] = facility['parent']['id']
-		# print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
+		if 'closedDate' not in facility or facility['closedDate'] >= str(startOfCurrentMonth):
+			peerGroupMap[facility['id']] = facility['parent']['id']
+			# print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
 
 #
 # Get a list of all indicators.
@@ -214,20 +218,21 @@ input = {}
 for i in indicators:
 	if i['id'][0:4] == 'dash':
 		for level in dataOrgUnitLevels:
-			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + str(level) + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
+			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
 			for r in rows:
 				indicator = r[0]
 				orgUnit = r[1]
 				period = r[2]
 				value = float( r[3] )
-				peerGroup = peerGroupMap[orgUnit]
-				if not peerGroup in input:
-					input[peerGroup] = {}
-				if not indicator in input[peerGroup]:
-					input[peerGroup][indicator] = {}
-				if not orgUnit in input[peerGroup][indicator]:
-					input[peerGroup][indicator][orgUnit] = []
-				input[peerGroup][indicator][orgUnit].append(value)
+				if orgUnit in peerGroupMap:
+					peerGroup = peerGroupMap[orgUnit]
+					if not peerGroup in input:
+						input[peerGroup] = {}
+					if not indicator in input[peerGroup]:
+						input[peerGroup][indicator] = {}
+					if not orgUnit in input[peerGroup][indicator]:
+						input[peerGroup][indicator][orgUnit] = []
+					input[peerGroup][indicator][orgUnit].append(value)
 
 #
 # Construct a list of data values to output.
@@ -269,7 +274,7 @@ for peerGroup, indicators in input.items():
 		q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
 		q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
 		stddev = int( round( numpy.std( averages ) ) )
-		# print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
+		print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
 		uidBase = 'de' + indicator[4:]
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
@@ -284,7 +289,7 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
-			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
+			print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
 	for area, orgUnitAverages in areas.items():
 		areaAverages = []
