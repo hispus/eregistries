@@ -12,13 +12,25 @@ import traceback
 
 ####################################################################################################
 #
-# From a DHIS 2 system, finds all the values in the past 3 months at a specified
-# organisation unit level for indicators whose UID starts with 'dash'.
+# From a DHIS2 system, this script compares data from an organisation unit with data
+# from other organisation units within a peer group. In the simple case, the peer
+# groups consist of all organisation units that are immediate children of a parent
+# organisation unit, where the parent level is the "orgUnitLevel" configuration value.
+#
+# However if there is an organisation unit group set called "Dashboard Groups",
+# then the peer groups are formed as follows: Peer groups are created for each
+# oranisation unit group within "Dashboard Groups". Each peer group consists of
+# the organisation units having the same ancestor at the configured organisation
+# unit level "orgUnitLevel". However for organisation units that are already at
+# or above the configured "orgUnitLevel", the peer groups for these organisation
+# units will be formed by those organisaiton units having the same parent.
+#
+# The data compared within each peer group are the values in the past 3 months
+# for indicators whose UID starts with 'dash'.
 #
 # For each such indicator, finds the average value for the past 3 months at
-# in each organisation unit at the specified level, and compares this average
-# value with the average values of other organisation units at the same level
-# having the same parent.
+# in each organisation unit in a peer goup, and compares this average value
+# with the average values of other organisation units in the same peer group.
 #
 # Based on this comparsion, writes aggregate monthly data values to the system
 # for each organisation unit that has such an an average (has any data for the
@@ -28,24 +40,26 @@ import traceback
 # UID dashXXXXXXX:
 #
 # deXXXXXXXAv - Three month average for this organisation unit
-# deXXXXXXXQ1 - 25th percentile average for all orgUnits with this parent
-# deXXXXXXXQ2 - 50th percentile average for all orgUnits with this parent
-# deXXXXXXXQ3 - 75th percentile average for all orgUnits with this parent
-# deXXXXXXXDR - percentile for this average compared with all orgUnits with same parent
-# deXXXXXXXsz - number of orgUnits with this parent having a value
-# deXXXXXXXor - order (1, 2, 3) of this orgUnit among siblings
-# deXXXXXXXsd - standard deviation within the same parent
+# deXXXXXXXQ1 - 25th percentile average for all orgUnits in the peer group
+# deXXXXXXXQ2 - 50th percentile average for all orgUnits in the peer group
+# deXXXXXXXQ3 - 75th percentile average for all orgUnits in the peer group
+# deXXXXXXXDR - percentile for this average compared with all orgUnits in the peer group
+# deXXXXXXXsz - number of orgUnits in the peer group having a value
+# deXXXXXXXor - order (1, 2, 3) of this orgUnit in the peer group
+# deXXXXXXXsd - standard deviation in the peer group
 #
 # Note that the deXXXXXXXQn, deXXXXXXXsz, and deXXXXXXXsd data elements will have the
-# same values for all orgUnits with the same parent. This is done so that validation
-# rules and analytics can have the parent's data available with each orgUnit.
+# same values for all orgUnits in the peer group. This is done so that validation
+# rules and analytics can have the peer group's data available with each orgUnit.
 #
-# These averages are also averaged among indicators belonging to the same
-# indicator group within the 'dash_indicators' indicator group set if it exists.
+# These averages are also averaged among indicators belonging to the same area
+# defined by indicator group within the 'dash_indicators' indicator group set
+# (if the 'dash_indicators' indicator group set exists.)
+#
 # The rank for each OrgUnit is determined by comparing the average average for
-# all indicators within the group against the average average for all orgUnits
-# with the same parent. The rank is stored in the data element whose name is
-# 'Overall: ' follwed by the indicator group name.
+# all indicators within the area against the average average in that area for
+# all orgUnits in the peer group. The rank is stored in the data element whose
+# name is 'Overall: ' follwed by the indicator group name for that area.
 #
 # This script can be given an argument which is the configuration file to load.
 # If not given, the default is /var/local/etc/dashcalc.conf
@@ -57,7 +71,7 @@ import traceback
 #     "baseurl": "http://localhost:8080",
 #     "username": "admin",
 #     "password": "district",
-#     "orgUnitLevel": 4
+#     "orgUnitLevel": 3
 #   }
 # }
 #
@@ -94,7 +108,7 @@ dhis = config['dhis']
 baseUrl = dhis['baseurl']
 api = baseUrl + '/api/'
 credentials = (dhis['username'], dhis['password'])
-orgUnitLevel = str(dhis['orgUnitLevel'])
+orgUnitLevel = dhis['orgUnitLevel']
 
 #
 # Get the names of the three monthly periods for data to collect
@@ -108,10 +122,13 @@ p3 = (today+relativedelta(months=-1)).strftime('%Y%m')
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	# print(api + args) # debug
+	print(api + args) # debug
 	response = requests.get(api + args, auth=credentials)
 	try:
-		return response.json()[objects]
+		if objects:
+			return response.json()[objects]
+		else:
+			return response.json()
 	except:
 		print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response.json() )
 		traceback.print_stack()
@@ -122,13 +139,43 @@ def d2post(args, data):
 	return requests.post(api + args, json=data, auth=credentials)
 
 #
-# Get a list of the facilities we will need with parents,
-# and create a map from facilities to parents.
-#	
-facilities = d2get('organisationUnits.json?filter=level:eq:' + orgUnitLevel + '&fields=id,parent&paging=false', 'organisationUnits')
-parentMap = {}
-for f in facilities:
-	parentMap[f['id']] = f['parent']['id']
+# If the org unit group set 'Dashboard groups' exists, then
+# form the organisation unit peer groups accordingly.
+#
+# The peer group identifier is the common ancestor org unit
+# UID follwed by the org unit group name.
+#
+# Also, remember the various org unit levels at which we will need to collect data.
+#
+peerGroupMap = {}
+dataOrgUnitLevels = set()
+response = d2get('organisationUnitGroupSets.json?filter=name:eq:Dashboard+groups&fields=organisationUnitGroups[name,organisationUnits[id,level,path]]', None)
+if 'organisationUnitGroupSets' in response:
+	for ouGroup in response['organisationUnitGroupSets'][0]['organisationUnitGroups']:
+		# print("ouGroup", ouGroup)
+		for facility in ouGroup['organisationUnits']:
+			if facility['level'] > orgUnitLevel:
+				ancestor = facility['path'][12*orgUnitLevel-11:12*orgUnitLevel]
+			elif facility['level'] > 1:
+				ancestor = facility['path'][-23:-12]
+			else:
+				continue # Path too short to have a parent - ignore
+			peerGroupMap[facility['id']] = ancestor + '-' + ouGroup['name']
+			dataOrgUnitLevels.add(facility['level'])
+			print('peerGroupMap:', facility['id'], facility['path'], ancestor + '-' + ouGroup['name']) # debug
+
+#
+# If the org unit group set 'Dashboard groups' does not exist, then
+# construct org unit peer groups as the children of the facilities
+# at the configured orgUnitLevel. The peer group identifier is
+# the parent org unit UID
+#
+else:
+	dataOrgUnitLevels.add(orgUnitLevel+1)
+	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(orgUnitLevel+1) + '&fields=id,parent&paging=false', 'organisationUnits')
+	for facility in facilities:
+		peerGroupMap[facility['id']] = facility['parent']['id']
+		print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
 
 #
 # Get a list of all indicators.
@@ -153,47 +200,48 @@ for element in dataElements:
 	elementNameId[element['name']] = element['id']
 
 #
-# For all indicators that are grouped, remember the group to which the indicator belongs
+# For all indicators that are grouped into areas, remember the area for each indicator
 #
 indicatorGroupSets = d2get('indicatorGroupSets.json?filter=name:eq:dash_indicators&fields=indicatorGroups[name,indicators[id]]&paging=false', 'indicatorGroupSets')
-groupedIndicators = {};
+indicatorAreas = {};
 if indicatorGroupSets:
 	for indicatorGroup in indicatorGroupSets[0]['indicatorGroups']:
 		for indicator in indicatorGroup['indicators']:
-			groupedIndicators[indicator['id']] = indicatorGroup['name']
+			indicatorAreas[indicator['id']] = indicatorGroup['name']
 
 #
 # Collect the input indicator data
-# into nested dictionaries: parent . indicator . orgUnit . value array
+# into nested dictionaries: peerGroup . indicator . orgUnit . value array
 #
 input = {}
 for i in indicators:
 	if i['id'][0:4] == 'dash':
-		rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + orgUnitLevel + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
-		for r in rows:
-			indicator = r[0]
-			orgUnit = r[1]
-			period = r[2]
-			value = float( r[3] )
-			parent = parentMap[orgUnit]
-			if not parent in input:
-				input[parent] = {}
-			if not indicator in input[parent]:
-				input[parent][indicator] = {}
-			if not orgUnit in input[parent][indicator]:
-				input[parent][indicator][orgUnit] = []
-			input[parent][indicator][orgUnit].append(value)
+		for level in dataOrgUnitLevels:
+			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:GD7TowwI46c;LEVEL-' + str(level) + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
+			for r in rows:
+				indicator = r[0]
+				orgUnit = r[1]
+				period = r[2]
+				value = float( r[3] )
+				peerGroup = peerGroupMap[orgUnit]
+				if not peerGroup in input:
+					input[peerGroup] = {}
+				if not indicator in input[peerGroup]:
+					input[peerGroup][indicator] = {}
+				if not orgUnit in input[peerGroup][indicator]:
+					input[peerGroup][indicator][orgUnit] = []
+				input[peerGroup][indicator][orgUnit].append(value)
 
 #
 # Construct a list of data values to output.
 #
-def addGroup(dict1, key1, key2, value):
-	if not key1 in dict1:
-		dict1[key1] = {}
-	dict2 = dict1[key1]
-	if not key2 in dict2:
-		dict2[key2] = []
-	dict2[key2].append( value );
+def addAreaValue(areas, area, orgUnit, value):
+	if not area in areas:
+		areas[area] = {}
+	orgUnits = areas[area]
+	if not orgUnit in orgUnits:
+		orgUnits[orgUnit] = []
+	orgUnits[orgUnit].append( value );
 
 output = { 'dataValues': [] }
 
@@ -207,24 +255,24 @@ def putOut(orgUnit, dataElement, value):
 		'value': str( value )
 		} )
 
-for parent, indicators in input.items():
-	groups = {} # { group: { orgUnit: [ average1, average2, ... ] } }
+for peerGroup, indicators in input.items():
+	areas = {} # { area: { orgUnit: [ average1, average2, ... ] } }
 
 	for indicator, orgUnits in indicators.items():
 		averages = []
 		for orgUnit, values in orgUnits.items():
 			average = int( round( statistics.mean( values ) ) )
 			averages.append( average )
-			if indicator in groupedIndicators:
-				groupName = groupedIndicators[indicator]
-				addGroup( groups, groupName, orgUnit, average )
+			if indicator in indicatorAreas:
+				area = indicatorAreas[indicator]
+				addAreaValue( areas, area, orgUnit, average )
 		averages.sort()
 		count = len( averages )
 		q1 = int( round( averages [ int( (count-1) * .25 ) ] ) )
 		q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
 		q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
 		stddev = int( round( numpy.std( averages ) ) )
-		# print( '\nParent:', parent, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
+		print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
 		uidBase = 'de' + indicator[4:]
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
@@ -239,20 +287,20 @@ for parent, indicators in input.items():
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
-			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
+			print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
-	for group, orgUnitAverages in groups.items():
-		groupAverages = []
+	for area, orgUnitAverages in areas.items():
+		areaAverages = []
 		for orgUnit, averages in orgUnitAverages.items():
 			average = int( round( statistics.mean( averages ) ) )
-			groupAverages.append ( average )
-		groupAverages.sort()
-		count = len( groupAverages )
-		# print( '\nGroup:', group, 'groupAverages:', groupAverages ) # debug
+			areaAverages.append ( average )
+		areaAverages.sort()
+		count = len( areaAverages )
+		# print( '\nArea:', area, 'areaAverages:', areaAverages ) # debug
 		for orgUnit, averages in orgUnitAverages.items():
 			mean = int( round( statistics.mean( averages ) ) )
-			smallRank = sum( [ a > mean for a in groupAverages ] ) + 1 # small is best
-			putOut( orgUnit, elementNameId['Overall: ' + group], smallRank )
+			smallRank = sum( [ a > mean for a in areaAverages ] ) + 1 # small is best
+			putOut( orgUnit, elementNameId['Overall: ' + area], smallRank )
 			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank ) # debug
 
 #
