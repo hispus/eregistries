@@ -122,13 +122,10 @@ p3 = (today+relativedelta(months=-1)).strftime('%Y%m')
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	print(api + args) # debug
+	# print(api + args) # debug
 	response = requests.get(api + args, auth=credentials)
 	try:
-		if objects:
-			return response.json()[objects]
-		else:
-			return response.json()
+		return response.json()[objects]
 	except:
 		print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response.json() )
 		traceback.print_stack()
@@ -149,9 +146,9 @@ def d2post(args, data):
 #
 peerGroupMap = {}
 dataOrgUnitLevels = set()
-response = d2get('organisationUnitGroupSets.json?filter=name:eq:Dashboard+groups&fields=organisationUnitGroups[name,organisationUnits[id,level,path]]', None)
-if 'organisationUnitGroupSets' in response:
-	for ouGroup in response['organisationUnitGroupSets'][0]['organisationUnitGroups']:
+groupSets = d2get('organisationUnitGroupSets.json?filter=name:eq:Dashboard+groups&fields=organisationUnitGroups[name,organisationUnits[id,level,path]]', 'organisationUnitGroupSets')
+if groupSets:
+	for ouGroup in groupSets[0]['organisationUnitGroups']:
 		# print("ouGroup", ouGroup)
 		for facility in ouGroup['organisationUnits']:
 			if facility['level'] > orgUnitLevel:
@@ -272,7 +269,7 @@ for peerGroup, indicators in input.items():
 		q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
 		q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
 		stddev = int( round( numpy.std( averages ) ) )
-		print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
+		# print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
 		uidBase = 'de' + indicator[4:]
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
@@ -287,7 +284,7 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
-			print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
+			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
 	for area, orgUnitAverages in areas.items():
 		areaAverages = []
