@@ -75,7 +75,7 @@ import traceback
 #   }
 # }
 #
-# This script writes one log file per month to /usr/local/var/log/dashcalc-yyyy-mm.log
+# This script writes one log file per month to /usr/local/var/log/dashcalc/dashcalc-yyyy-mm.log
 # (if the directory exists and it has write access). With each run, it appends one
 # line to the monthly log file giving the run ending date and time, the base URL
 # of the DHIS 2 system accessed, the time it took to execute the script in
