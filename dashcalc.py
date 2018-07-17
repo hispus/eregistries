@@ -311,7 +311,7 @@ if str(status) != '<Response [200]>' or status.json()['importCount']['ignored'] 
 # Log the run in the monthly log file (if the log directory exists).
 #
 endTime = datetime.datetime.now()
-logFile = '/usr/local/var/log/dashcalc-' + today.strftime('%Y-%m') + '.log'
+logFile = '/usr/local/var/log/dashcalc/dashcalc-' + today.strftime('%Y-%m') + '.log'
 logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + str(endTime-startTime).split('.', 2)[0] + ' ' + str(status.json()['importCount']) + '\n'
 try:
 	open(logFile, 'a+').write(logLine)
