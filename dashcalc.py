@@ -79,10 +79,10 @@ import traceback
 # (if the directory exists and it has write access). With each run, it appends one
 # line to the monthly log file giving the run ending date and time, the base URL
 # of the DHIS 2 system accessed, the time it took to execute the script in
-# (hours:minutes:seconds), and the count of data values imported, updated, ignored,
-# and deleted. For example:
+# (hours:minutes:seconds), and the count of data values imported, updated and ignored.
+# For example:
 #
-# 2018-07-10 12:28:19.854 http://localhost:8080 0:02:11 {'imported': 0, 'updated': 10068, 'ignored': 0, 'deleted': 0}
+# 2018-07-10 12:28:19.854 http://localhost:8080 0:02:11 imported: 0, updated: 10068, ignored: 0
 #
 # This script requires the following:
 #
@@ -124,7 +124,7 @@ startOfCurrentMonth = today.replace(day=1)
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	print(api + args) # debug
+	# print(api + args) # debug
 	response = requests.get(api + args, auth=credentials)
 	try:
 		return response.json()[objects]
@@ -274,7 +274,7 @@ for peerGroup, indicators in input.items():
 		q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
 		q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
 		stddev = int( round( numpy.std( averages ) ) )
-		print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
+		# print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
 		uidBase = 'de' + indicator[4:]
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
@@ -289,7 +289,7 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
-			print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
+			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
 	for area, orgUnitAverages in areas.items():
 		areaAverages = []
@@ -317,7 +317,9 @@ if str(status) != '<Response [200]>' or status.json()['importCount']['ignored'] 
 #
 endTime = datetime.datetime.now()
 logFile = '/usr/local/var/log/dashcalc/dashcalc-' + today.strftime('%Y-%m') + '.log'
-logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + str(endTime-startTime).split('.', 2)[0] + ' ' + str(status.json()['importCount']) + '\n'
+counts = status.json()['importCount']
+logCounts = ' imported: ' + str(counts['imported']) + ', updated: ' + str(counts['updated']) + ', ignored: ' + str(counts['ignored'])
+logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + (str(endTime-startTime).split('.', 2)[0]) + logCounts  + '\n'
 try:
 	open(logFile, 'a+').write(logLine)
 except:
