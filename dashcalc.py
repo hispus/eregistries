@@ -56,10 +56,12 @@ import traceback
 # defined by indicator group within the 'dash_indicators' indicator group set
 # (if the 'dash_indicators' indicator group set exists.)
 #
-# The rank for each OrgUnit is determined by comparing the average average for
-# all indicators within the area against the average average in that area for
-# all orgUnits in the peer group. The rank is stored in the data element whose
-# name is 'Overall: ' follwed by the indicator group name for that area.
+# The area average for each organisation unit is computed as the average of the
+# averages in that area. This is stored in the data element named 'Overall Average: '
+# follwed by the indicator group name for that area. The area average is compared
+# with other organisation units in the peer group, and the rank (small is good)
+# is stored in the data element whose name is 'Overall Rank: ' follwed by the
+# indicator group name for that area.
 #
 # This script can be given an argument which is the configuration file to load.
 # If not given, the default is /var/local/etc/dashcalc.conf
@@ -302,8 +304,9 @@ for peerGroup, indicators in input.items():
 		for orgUnit, averages in orgUnitAverages.items():
 			mean = int( round( statistics.mean( averages ) ) )
 			smallRank = sum( [ a > mean for a in areaAverages ] ) + 1 # small is best
-			putOut( orgUnit, elementNameId['Overall: ' + area], smallRank )
-			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank ) # debug
+			putOut( orgUnit, elementNameId['Overall Average: ' + area], mean )
+			putOut( orgUnit, elementNameId['Overall Rank: ' + area], smallRank )
+			# print( 'OrgUnit:', orgUnit, 'overall average:', mean, 'overall rank:', smallRank ) # debug
 
 #
 # Import the output data into the DHIS 2 system.
