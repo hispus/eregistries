@@ -259,6 +259,12 @@ def putOut(orgUnit, dataElement, value):
 		'value': str( value )
 		} )
 
+def putOutByName(orgUnit, dataElementName, value):
+	if dataElementName in elementNameId:
+		putOut(orgUnit, elementNameId[dataElementName], value)
+	# else: # debug
+		# print("Warning: data element " + dataElementName + " not found.") # debug
+
 for peerGroup, indicators in input.items():
 	areas = {} # { area: { orgUnit: [ average1, average2, ... ] } }
 
@@ -290,8 +296,7 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'DR', percentile )
 			putOut( orgUnit, uidBase + 'sz', count )
 			putOut( orgUnit, uidBase + 'or', bigRank )
-			# if smallRank used...
-			# putOut( orgUnit, uidBase + 'sr', smallRank )
+			putOut( orgUnit, uidBase + 'sr', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
 			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
@@ -306,15 +311,15 @@ for peerGroup, indicators in input.items():
 		for orgUnit, averages in orgUnitAverages.items():
 			mean = int( round( statistics.mean( averages ) ) )
 			smallRank = sum( [ a > mean for a in areaAverages ] ) + 1 # small is best
-			putOut( orgUnit, elementNameId['Overall Average: ' + area], mean )
-			putOut( orgUnit, elementNameId['Overall Rank: ' + area], smallRank )
+			putOutByName( orgUnit, 'Overall Average: ' + area, mean )
+			putOutByName( orgUnit, 'Overall Rank: ' + area, smallRank )
 			# print( 'OrgUnit:', orgUnit, 'overall average:', mean, 'overall rank:', smallRank ) # debug
 
 #
 # Import the output data into the DHIS 2 system.
 #
 status = d2post( 'dataValueSets', output )
-if str(status) != '<Response [200]>' or status.json()['importCount']['ignored'] != 0:
+if str(status) != '<Response [200]>': # or status.json()['importCount']['ignored'] != 0: # No error if data elements not found.
 	print( 'Data post return status:', str(status), status.json() )
 
 #
