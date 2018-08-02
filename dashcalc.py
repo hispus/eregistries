@@ -289,7 +289,9 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'Q3', q3 )
 			putOut( orgUnit, uidBase + 'DR', percentile )
 			putOut( orgUnit, uidBase + 'sz', count )
-			putOut( orgUnit, uidBase + 'or', smallRank )
+			putOut( orgUnit, uidBase + 'or', bigRank )
+			# if smallRank used...
+			# putOut( orgUnit, uidBase + 'sr', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
 			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
 
