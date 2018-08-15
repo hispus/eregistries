@@ -310,10 +310,12 @@ for peerGroup, indicators in input.items():
 		# print( '\nArea:', area, 'areaAverages:', areaAverages ) # debug
 		for orgUnit, averages in orgUnitAverages.items():
 			mean = int( round( statistics.mean( averages ) ) )
-			smallRank = sum( [ a > mean for a in areaAverages ] ) + 1 # small is best
+			bigRank = float( sum( [ a <= mean for a in areaAverages ] ) )
+			percentile = int( round( 100 * bigRank / count ) )
 			putOutByName( orgUnit, 'Overall Average: ' + area, mean )
-			putOutByName( orgUnit, 'Overall Rank: ' + area, smallRank )
-			# print( 'OrgUnit:', orgUnit, 'overall average:', mean, 'overall rank:', smallRank ) # debug
+			putOutByName( orgUnit, 'Overall Rank: ' + area, percentile )
+			
+			# print( 'OrgUnit:', orgUnit, 'overall average:', mean, 'overall rank:', percentile ) # debug
 
 #
 # Import the output data into the DHIS 2 system.
