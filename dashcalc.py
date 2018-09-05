@@ -9,6 +9,7 @@ import sys
 import statistics
 import numpy
 import traceback
+import time
 
 ####################################################################################################
 #
@@ -126,14 +127,17 @@ startOfCurrentMonth = today.replace(day=1)
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	# print(api + args) # debug
-	response = requests.get(api + args, auth=credentials)
-	try:
-		return response.json()[objects]
-	except:
-		print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response.json() )
-		traceback.print_stack()
-		sys.exit(1)
+	for retry in range(20): # Sometimes gets a [502] error, waiting and retrying helps
+		# print(api + args) # debug
+		response = requests.get(api + args, auth=credentials)
+		try:
+			return response.json()[objects]
+		except:
+			time.sleep(10) # Wait before retrying
+			continue
+	print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response.text )
+	traceback.print_stack()
+	sys.exit(1)
 
 def d2post(args, data):
 	# print(api + args, json.dumps(data))
@@ -286,8 +290,8 @@ for peerGroup, indicators in input.items():
 		uidBase = 'de' + indicator[4:]
 		for orgUnit, values in orgUnits.items():
 			mean = int( round( statistics.mean( values ) ) )
-			bigRank = float( sum( [ a <= mean for a in averages ] ) ) # big is best
-			percentile = int( round( 100 * bigRank / count ) )
+			bigRank = sum( [ a <= mean for a in averages ] ) # big is best
+			percentile = int( round( 100 * float( bigRank ) / count ) )
 			smallRank = sum( [ a > mean for a in averages ] ) + 1 # small is best
 			putOut( orgUnit, uidBase + 'Av', mean )
 			putOut( orgUnit, uidBase + 'Q1', q1 )
@@ -298,7 +302,7 @@ for peerGroup, indicators in input.items():
 			putOut( orgUnit, uidBase + 'or', bigRank )
 			putOut( orgUnit, uidBase + 'sr', smallRank )
 			putOut( orgUnit, uidBase + 'sd', stddev )
-			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'rank:', smallRank, 'percentile:', percentile ) # debug
+			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile ) # debug
 
 	for area, orgUnitAverages in areas.items():
 		areaAverages = []
@@ -310,8 +314,8 @@ for peerGroup, indicators in input.items():
 		# print( '\nArea:', area, 'areaAverages:', areaAverages ) # debug
 		for orgUnit, averages in orgUnitAverages.items():
 			mean = int( round( statistics.mean( averages ) ) )
-			bigRank = float( sum( [ a <= mean for a in areaAverages ] ) )
-			percentile = int( round( 100 * bigRank / count ) )
+			bigRank = sum( [ a <= mean for a in areaAverages ] )
+			percentile = int( round( 100 * float( bigRank ) / count ) )
 			putOutByName( orgUnit, 'Overall Average: ' + area, mean )
 			putOutByName( orgUnit, 'Overall Rank: ' + area, percentile )
 			
@@ -320,8 +324,15 @@ for peerGroup, indicators in input.items():
 #
 # Import the output data into the DHIS 2 system.
 #
-status = d2post( 'dataValueSets', output )
-if str(status) != '<Response [200]>': # or status.json()['importCount']['ignored'] != 0: # No error if data elements not found.
+
+for retry in range(20): # Sometimes gets an error, waiting and retrying helps
+	status = d2post( 'dataValueSets', output )
+	success = ( str(status) != '<Response [200]>'  or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
+	if success:
+		break
+	else:
+		time.sleep(10) # Wait before retrying
+if not success:
 	print( 'Data post return status:', str(status), status.json() )
 
 #
