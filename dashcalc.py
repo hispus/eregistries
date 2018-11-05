@@ -65,7 +65,7 @@ import time
 # indicator group name for that area.
 #
 # This script can be given an argument which is the configuration file to load.
-# If not given, the default is /var/local/etc/dashcalc.conf
+# If not given, the default is /usr/local/etc/dashcalc.conf
 #
 # The configuration file is of the following form:
 #
