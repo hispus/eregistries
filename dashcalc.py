@@ -14,11 +14,17 @@ import time
 ####################################################################################################
 #
 # From a DHIS2 system, this script compares data from an organisation unit with data
-# from other organisation units within a peer group. In the simple case, the peer
-# groups consist of all organisation units that are immediate children of a parent
-# organisation unit, where the parent level is the "orgUnitLevel" configuration value.
+# from other organisation units within a peer group. The peer groups are determined
+# in one of three ways:
 #
-# However if there is an organisation unit group set called "Dashboard Groups",
+# 1. If only the "orgUnitLevel" is configured, the peer groups consist of all organisation
+# units that are immediate children of a parent organisation unit, where the parent level
+# is the "orgUnitLevel" configuration value.
+#
+# 2. If "peerLevel" is also configured, the peer groups consist of all organisation
+# units at the peer level. They are grouped by the organisations at the "orgUnitLevel".
+#
+# 3. If there is an organisation unit group set called "Dashboard Groups",
 # then the peer groups are formed as follows: Peer groups are created for each
 # oranisation unit group within "Dashboard Groups". Each peer group consists of
 # the organisation units having the same ancestor at the configured organisation
@@ -74,9 +80,12 @@ import time
 #     "baseurl": "http://localhost:8080",
 #     "username": "admin",
 #     "password": "district",
-#     "orgUnitLevel": 3
+#     "orgUnitLevel": 3,
+#     "peerLevel": 6
 #   }
 # }
+#
+# Note: "peerLevel" is optional. If not specified, it is set to orgUnitLevel + 1.
 #
 # This script writes one log file per month to /usr/local/var/log/dashcalc/dashcalc-yyyy-mm.log
 # (if the directory exists and it has write access). With each run, it appends one
@@ -87,7 +96,7 @@ import time
 #
 # 2018-07-10 12:28:19.854 http://localhost:8080 0:02:11 imported: 0, updated: 10068, ignored: 0
 #
-# This script requires the following:
+# This script requires the following (you may need to replace pip with pip3):
 #
 #    pip install requests
 #    pip install python-dateutil
@@ -112,6 +121,7 @@ baseUrl = dhis['baseurl']
 api = baseUrl + '/api/'
 credentials = (dhis['username'], dhis['password'])
 orgUnitLevel = dhis['orgUnitLevel']
+peerLevel = dhis.get('peerLevel', orgUnitLevel + 1)
 
 #
 # Get the names of the three monthly periods for data to collect
@@ -129,7 +139,7 @@ startOfCurrentMonth = today.replace(day=1)
 def d2get(args, objects):
 	for retry in range(20): # Sometimes gets a [502] error, waiting and retrying helps
 		# print(api + args) # debug
-		response = requests.get(api + args, auth=credentials)
+		response = requests.get(api + args.replace('[','%5B').replace(']','%5D'), auth=credentials)
 		try:
 			return response.json()[objects]
 		except:
@@ -172,17 +182,17 @@ if groupSets:
 
 #
 # If the org unit group set 'Dashboard groups' does not exist, then
-# construct org unit peer groups as the children of the facilities
-# at the configured orgUnitLevel. The peer group identifier is
-# the parent org unit UID
+# construct org unit peer groups at the peer level. The peer group
+# identifier is the ancestor org unit UID
 #
 else:
-	dataOrgUnitLevels.add(orgUnitLevel+1)
-	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(orgUnitLevel+1) + '&fields=id,parent,closedDate&paging=false', 'organisationUnits')
+	dataOrgUnitLevels.add(peerLevel)
+	facilities = d2get('organisationUnits.json?filter=level:eq:' + str(peerLevel) + '&fields=id,path,closedDate&paging=false', 'organisationUnits')
 	for facility in facilities:
 		if 'closedDate' not in facility or facility['closedDate'] >= str(startOfCurrentMonth):
-			peerGroupMap[facility['id']] = facility['parent']['id']
-			# print('peerGroupMap:', facility['id'], facility['parent']['id']) # debug
+			ancestor = facility['path'][12*orgUnitLevel-11:12*orgUnitLevel]
+			peerGroupMap[facility['id']] = ancestor
+			# print('peerGroupMap:', facility['id'], ancestor, facility['path']) # debug
 
 #
 # Get a list of all indicators.
@@ -210,7 +220,7 @@ for element in dataElements:
 # For all indicators that are grouped into areas, remember the area for each indicator
 #
 indicatorGroupSets = d2get('indicatorGroupSets.json?filter=name:eq:dash_indicators&fields=indicatorGroups[name,indicators[id]]&paging=false', 'indicatorGroupSets')
-indicatorAreas = {};
+indicatorAreas = {}
 if indicatorGroupSets:
 	for indicatorGroup in indicatorGroupSets[0]['indicatorGroups']:
 		for indicator in indicatorGroup['indicators']:
@@ -249,7 +259,7 @@ def addAreaValue(areas, area, orgUnit, value):
 	orgUnits = areas[area]
 	if not orgUnit in orgUnits:
 		orgUnits[orgUnit] = []
-	orgUnits[orgUnit].append( value );
+	orgUnits[orgUnit].append( value )
 
 output = { 'dataValues': [] }
 
@@ -327,7 +337,7 @@ for peerGroup, indicators in input.items():
 
 for retry in range(20): # Sometimes gets an error, waiting and retrying helps
 	status = d2post( 'dataValueSets', output )
-	success = ( str(status) != '<Response [200]>'  or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
+	success = ( str(status) == '<Response [200]>' or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
 	if success:
 		break
 	else:
