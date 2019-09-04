@@ -42,18 +42,21 @@ import time
 # Based on this comparsion, writes aggregate monthly data values to the system
 # for each organisation unit that has such an an average (has any data for the
 # dash... indicator in the last 3 months). The data values are written for the
-# month most recently ended. Data is written into the following data elements,
+# month most recently ended (and immediately-preceeding months if the configured
+# "count" is greater than 1). Data is written into the following data elements,
 # based on the data element UID, where XXXXXXX is from the indicator with
 # UID dashXXXXXXX:
 #
-# deXXXXXXXAv - Three month average for this organisation unit
+# deXXXXXXXAv - three month average for this organisation unit
 # deXXXXXXXQ1 - 25th percentile average for all orgUnits in the peer group
 # deXXXXXXXQ2 - 50th percentile average for all orgUnits in the peer group
 # deXXXXXXXQ3 - 75th percentile average for all orgUnits in the peer group
 # deXXXXXXXDR - percentile for this average compared with all orgUnits in the peer group
 # deXXXXXXXsz - number of orgUnits in the peer group having a value
-# deXXXXXXXor - order (1, 2, 3) of this orgUnit in the peer group
+# deXXXXXXXor - "big rank" order (3, 2, 1) of this orgUnit in the peer group
+# deXXXXXXXsr - "small rank" order (1, 2, 3) of this orgUnit in the peer group
 # deXXXXXXXsd - standard deviation in the peer group
+# deXXXXXXXd3 - three month sum of the indicator's denominator for this orgUnit
 #
 # Note that the deXXXXXXXQn, deXXXXXXXsz, and deXXXXXXXsd data elements will have the
 # same values for all orgUnits in the peer group. This is done so that validation
