@@ -63,6 +63,10 @@ import time
 # defined by indicator group within the 'dash_indicators' indicator group set
 # (if the 'dash_indicators' indicator group set exists.)
 #
+# If "count" is configured, the script computes values for the last n completed
+# months. If there is no "count", the script computes values only for the most
+# recently-completed month.
+#
 # The area average for each organisation unit is computed as the average of the
 # averages in that area. This is stored in the data element named 'Overall Average: '
 # follwed by the indicator group name for that area. The area average is compared
@@ -81,20 +85,23 @@ import time
 #     "username": "admin",
 #     "password": "district",
 #     "orgUnitLevel": 3,
-#     "peerLevel": 6
+#     "peerLevel": 6,
+#     "count": 6
 #   }
 # }
 #
-# Note: "peerLevel" is optional. If not specified, it is set to orgUnitLevel + 1.
+# Notes:
+# 		"peerLevel" is optional. If not specified, it is set to orgUnitLevel + 1.
+# 		"count" is optional. If not specified, it is set to 1.
 #
 # This script writes one log file per month to /usr/local/var/log/dashcalc/dashcalc-yyyy-mm.log
 # (if the directory exists and it has write access). With each run, it appends one
 # line to the monthly log file giving the run ending date and time, the base URL
 # of the DHIS 2 system accessed, the time it took to execute the script in
 # (hours:minutes:seconds), and the count of data values imported, updated and ignored.
-# For example:
+# For example, in file /usr/local/var/log/dashcalc/dashcalc-2020-01.log:
 #
-# 2018-07-10 12:28:19.854 http://localhost:8080 0:02:11 imported: 0, updated: 10068, ignored: 0
+# 2020-01-10 12:28:19.854 http://localhost:8080 0:02:11 imported: 0, updated: 10068, ignored: 0
 #
 # This script requires the following (you may need to replace pip with pip3):
 #
@@ -122,15 +129,28 @@ api = baseUrl + '/api/'
 credentials = (dhis['username'], dhis['password'])
 orgUnitLevel = dhis['orgUnitLevel']
 peerLevel = dhis.get('peerLevel', orgUnitLevel + 1)
+monthCount = dhis.get('count', 1)
 
 #
-# Get the names of the three monthly periods for data to collect
+# Convert month string to a sequential number, e.g.:
+# '201912' (December 2019) -> 24239
+# '202001' (January 2020) -> 24240
+#
+def toNumber(month):
+	return int(month[:4])*12 + int(month[4:])-1
+
+#
+# Convert sequential number to a month string
+#
+def toMonth(monthNumber):
+	return str(monthNumber//12) + str(101+monthNumber%12)[1:]
+
+#
+# Find today and last month
 #
 today = datetime.date.today()
-p1 = (today+relativedelta(months=-3)).strftime('%Y%m')
-p2 = (today+relativedelta(months=-2)).strftime('%Y%m')
-p3 = (today+relativedelta(months=-1)).strftime('%Y%m')
-
+thisMonth = today.strftime('%Y%m')
+thisMonthNumber = toNumber(thisMonth)
 startOfCurrentMonth = today.replace(day=1)
 
 #
@@ -141,6 +161,7 @@ def d2get(args, objects):
 		# print(api + args) # debug
 		response = requests.get(api + args.replace('[','%5B').replace(']','%5D'), auth=credentials)
 		try:
+			# print(api + args + ' --', len(response.json()[objects]))
 			return response.json()[objects]
 		except:
 			time.sleep(10) # Wait before retrying
@@ -227,19 +248,21 @@ if indicatorGroupSets:
 			indicatorAreas[indicator['id']] = indicatorGroup['name']
 
 #
-# Collect the input indicator data
-# into nested dictionaries: peerGroup . indicator . orgUnit . value array
+# Assemble the input indicator data into nested dictionaries:
+# input [ peerGroup ] [ indicator ] [ orgUnit ] [ period ] { 'value', 'denominator' }
 #
 input = {}
+selectPeriods = ';'.join([ toMonth(i) for i in range(thisMonthNumber-monthCount-2, thisMonthNumber) ])
 for i in indicators:
 	if i['id'][0:4] == 'dash':
 		for level in dataOrgUnitLevels:
-			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + p1 + ';' + p2 + ';' + p3 + '&skipMeta=true', 'rows')
+			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
 			for r in rows:
 				indicator = r[0]
 				orgUnit = r[1]
-				period = r[2]
+				period = toNumber( r[2] )
 				value = float( r[3] )
+				denominator = float( r[5] )
 				if orgUnit in peerGroupMap:
 					peerGroup = peerGroupMap[orgUnit]
 					if not peerGroup in input:
@@ -247,8 +270,8 @@ for i in indicators:
 					if not indicator in input[peerGroup]:
 						input[peerGroup][indicator] = {}
 					if not orgUnit in input[peerGroup][indicator]:
-						input[peerGroup][indicator][orgUnit] = []
-					input[peerGroup][indicator][orgUnit].append(value)
+						input[peerGroup][indicator][orgUnit] = {}
+					input[peerGroup][indicator][orgUnit][period] = { 'value': value, 'denominator': denominator }
 
 #
 # Construct a list of data values to output.
@@ -263,73 +286,93 @@ def addAreaValue(areas, area, orgUnit, value):
 
 output = { 'dataValues': [] }
 
-def putOut(orgUnit, dataElement, value):
+def putOut(orgUnit, month, dataElement, value):
 	output['dataValues'].append( {
-		'attributeOptionCombo': defaultCoc,
-		'categoryOptionCombo': defaultCoc,
-		'dataElement': dataElement,
 		'orgUnit': orgUnit,
-		'period': p3,
-		'value': str( value )
+		'period': month,
+		'dataElement': dataElement,
+		'value': str( value ),
+		'categoryOptionCombo': defaultCoc,
+		'attributeOptionCombo': defaultCoc
 		} )
 
-def putOutByName(orgUnit, dataElementName, value):
+def putOutByName(orgUnit, month, dataElementName, value):
 	if dataElementName in elementNameId:
-		putOut(orgUnit, elementNameId[dataElementName], value)
+		putOut(orgUnit, month, elementNameId[dataElementName], value)
 	# else: # debug
 		# print("Warning: data element " + dataElementName + " not found.") # debug
 
-for peerGroup, indicators in input.items():
-	areas = {} # { area: { orgUnit: [ average1, average2, ... ] } }
+def threeMonths(periods, monthNumber, valueType):
+	data = []
+	for m in range(monthNumber - 3, monthNumber):
+		if m in periods:
+			data.append(periods[m]['value'])
+	return data
 
-	for indicator, orgUnits in indicators.items():
-		averages = []
-		for orgUnit, values in orgUnits.items():
-			average = int( round( statistics.mean( values ) ) )
-			averages.append( average )
-			if indicator in indicatorAreas:
-				area = indicatorAreas[indicator]
-				addAreaValue( areas, area, orgUnit, average )
-		averages.sort()
-		count = len( averages )
-		q1 = int( round( averages [ int( (count-1) * .25 ) ] ) )
-		q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
-		q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
-		stddev = int( round( numpy.std( averages ) ) )
-		# print( '\nPeerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
-		uidBase = 'de' + indicator[4:]
-		for orgUnit, values in orgUnits.items():
-			mean = int( round( statistics.mean( values ) ) )
-			bigRank = sum( [ a <= mean for a in averages ] ) # big is best
-			percentile = int( round( 100 * float( bigRank ) / count ) )
-			smallRank = sum( [ a > mean for a in averages ] ) + 1 # small is best
-			putOut( orgUnit, uidBase + 'Av', mean )
-			putOut( orgUnit, uidBase + 'Q1', q1 )
-			putOut( orgUnit, uidBase + 'Q2', q2 )
-			putOut( orgUnit, uidBase + 'Q3', q3 )
-			putOut( orgUnit, uidBase + 'DR', percentile )
-			putOut( orgUnit, uidBase + 'sz', count )
-			putOut( orgUnit, uidBase + 'or', bigRank )
-			putOut( orgUnit, uidBase + 'sr', smallRank )
-			putOut( orgUnit, uidBase + 'sd', stddev )
-			# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile ) # debug
+for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
+	month = toMonth(monthNumber)
+	for peerGroup, indicators in input.items():
+		areas = {} # { area: { orgUnit: [ average1, average2, ... ] } }
 
-	for area, orgUnitAverages in areas.items():
-		areaAverages = []
-		for orgUnit, averages in orgUnitAverages.items():
-			average = int( round( statistics.mean( averages ) ) )
-			areaAverages.append ( average )
-		areaAverages.sort()
-		count = len( areaAverages )
-		# print( '\nArea:', area, 'areaAverages:', areaAverages ) # debug
-		for orgUnit, averages in orgUnitAverages.items():
-			mean = int( round( statistics.mean( averages ) ) )
-			bigRank = sum( [ a <= mean for a in areaAverages ] )
-			percentile = int( round( 100 * float( bigRank ) / count ) )
-			putOutByName( orgUnit, 'Overall Average: ' + area, mean )
-			putOutByName( orgUnit, 'Overall Rank: ' + area, percentile )
-			
-			# print( 'OrgUnit:', orgUnit, 'overall average:', mean, 'overall rank:', percentile ) # debug
+		for indicator, orgUnits in indicators.items():
+			averages = []
+			for orgUnit, periods in orgUnits.items():
+				values = threeMonths(periods, monthNumber, 'value')
+				# print('orgUnit:', orgUnit, 'periods:', periods, 'monthNumber:', monthNumber, 'values:', values)
+				if len(values) == 0:
+					continue # No indicator data for these 3 months for this orgUnit
+				average = int( round( statistics.mean( values ) ) )
+				averages.append( average )
+				if indicator in indicatorAreas:
+					area = indicatorAreas[indicator]
+					addAreaValue( areas, area, orgUnit, average )
+			count = len( averages )
+			if count == 0:
+				continue # No indicator data for these 3 months for this orgUnit peer group
+			averages.sort()
+			q1 = int( round( averages [ int( (count-1) * .25 ) ] ) )
+			q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
+			q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
+			stddev = int( round( numpy.std( averages ) ) )
+			# print( '\nmonth:', month, 'peerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
+			uidBase = 'de' + indicator[4:]
+			for orgUnit, periods in orgUnits.items():
+				values = threeMonths(periods, monthNumber, 'value')
+				if len(values) == 0:
+					continue # No indicator data for these 3 months for this orgUnit
+				mean = int( round( statistics.mean( values ) ) )
+				bigRank = sum( [ a <= mean for a in averages ] ) # big is best
+				percentile = int( round( 100 * float( bigRank ) / count ) )
+				smallRank = sum( [ a > mean for a in averages ] ) + 1 # small is best
+				denominatorSum = sum( threeMonths(periods, monthNumber, 'denominator') )
+				putOut( orgUnit, month, uidBase + 'Av', mean )
+				putOut( orgUnit, month, uidBase + 'Q1', q1 )
+				putOut( orgUnit, month, uidBase + 'Q2', q2 )
+				putOut( orgUnit, month, uidBase + 'Q3', q3 )
+				putOut( orgUnit, month, uidBase + 'DR', percentile )
+				putOut( orgUnit, month, uidBase + 'sz', count )
+				putOut( orgUnit, month, uidBase + 'or', bigRank )
+				putOut( orgUnit, month, uidBase + 'sr', smallRank )
+				putOut( orgUnit, month, uidBase + 'sd', stddev )
+				putOut( orgUnit, month, uidBase + 'd3', denominatorSum )
+				# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile, 'denominatorSum:', denominatorSum ) # debug
+
+		for area, orgUnitAverages in areas.items():
+			areaAverages = []
+			for orgUnit, averages in orgUnitAverages.items():
+				average = int( round( statistics.mean( averages ) ) )
+				areaAverages.append ( average )
+			areaAverages.sort()
+			count = len( areaAverages )
+			# print( '\nMonth:', month, 'area:', area, 'areaAverages:', areaAverages ) # debug
+			for orgUnit, averages in orgUnitAverages.items():
+				mean = int( round( statistics.mean( averages ) ) )
+				bigRank = sum( [ a <= mean for a in areaAverages ] )
+				percentile = int( round( 100 * float( bigRank ) / count ) )
+				putOutByName( orgUnit, month, 'Overall Average: ' + area, mean )
+				putOutByName( orgUnit, month, 'Overall Rank: ' + area, percentile )
+
+				# print( 'OrgUnit:', orgUnit, 'month:', month, 'overall average:', mean, 'overall rank:', percentile ) # debug
 
 #
 # Import the output data into the DHIS 2 system.
