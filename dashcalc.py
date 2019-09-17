@@ -56,6 +56,7 @@ import time
 # deXXXXXXXor - "big rank" order (3, 2, 1) of this orgUnit in the peer group
 # deXXXXXXXsr - "small rank" order (1, 2, 3) of this orgUnit in the peer group
 # deXXXXXXXsd - standard deviation in the peer group
+# deXXXXXXXDM - mean of all orgUnit values in the peer group
 # deXXXXXXXd3 - three month sum of the indicator's denominator for this orgUnit
 #
 # Note that the deXXXXXXXQn, deXXXXXXXsz, and deXXXXXXXsd data elements will have the
@@ -319,8 +320,10 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 
 		for indicator, orgUnits in indicators.items():
 			averages = []
+			allPeersValues = []
 			for orgUnit, periods in orgUnits.items():
 				values = threeMonths(periods, monthNumber, 'value')
+				allPeersValues.extend(values)
 				# print('orgUnit:', orgUnit, 'periods:', periods, 'monthNumber:', monthNumber, 'values:', values)
 				if len(values) == 0:
 					continue # No indicator data for these 3 months for this orgUnit
@@ -332,6 +335,7 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 			count = len( averages )
 			if count == 0:
 				continue # No indicator data for these 3 months for this orgUnit peer group
+			allPeersMean = int( round( statistics.mean( allPeersValues ) ) )
 			averages.sort()
 			q1 = int( round( averages [ int( (count-1) * .25 ) ] ) )
 			q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
@@ -357,8 +361,9 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 				putOut( orgUnit, month, uidBase + 'or', bigRank )
 				putOut( orgUnit, month, uidBase + 'sr', smallRank )
 				putOut( orgUnit, month, uidBase + 'sd', stddev )
+				putOut( orgUnit, month, uidBase + 'DM', allPeersMean )
 				putOut( orgUnit, month, uidBase + 'd3', denominatorSum )
-				# print( 'OrgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile, 'denominatorSum:', denominatorSum ) # debug
+				# print( 'Month:', month, 'peerGroup:', peerGroup, 'indicator:', indicator, 'orgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile, 'allPeersMean', allPeersMean, 'denominatorSum:', denominatorSum ) # debug
 
 		for area, orgUnitAverages in areas.items():
 			areaAverages = []
