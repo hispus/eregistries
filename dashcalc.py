@@ -275,6 +275,7 @@ if indicatorGroupSets:
 # Assemble the input indicator data into nested dictionaries:
 # input [ peerGroup ] [ indicator ] [ orgUnit ] [ period ] { 'value', 'denominator' }
 #
+indicatorErrorCount = 0
 input = {}
 selectPeriods = ';'.join([ toMonth(i) for i in range(thisMonthNumber-monthCount-2, thisMonthNumber) ])
 for i in indicators:
@@ -283,6 +284,7 @@ for i in indicators:
 			try:
 				rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
 			except Exception as e:
+				indicatorErrorCount = indicatorErrorCount + 1
 				break # After one error on this indicator, move on to the next indicator.
 			for r in rows:
 				indicator = r[0]
@@ -425,7 +427,7 @@ if not success:
 endTime = datetime.datetime.now()
 logFile = '/usr/local/var/log/dashcalc/dashcalc-' + today.strftime('%Y-%m') + '.log'
 counts = status.json()['importCount']
-logCounts = ' imported: ' + str(counts['imported']) + ', updated: ' + str(counts['updated']) + ', ignored: ' + str(counts['ignored'])
+logCounts = ' imported: ' + str(counts['imported']) + ', updated: ' + str(counts['updated']) + ', ignored: ' + str(counts['ignored']) + ', indicator errors: ' + str(indicatorErrorCount)
 logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + (str(endTime-startTime).split('.', 2)[0]) + logCounts  + '\n'
 try:
 	open(logFile, 'a+').write(logLine)
