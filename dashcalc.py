@@ -125,7 +125,17 @@ if len(sys.argv) < 2:
 else:
     configFile = sys.argv[1]
 
-config = json.loads(open(configFile).read())
+try:
+	configContents = open(configFile).read()
+except Exception as e:
+	print("Can't read configuration file:", e)
+	sys.exit(1)
+
+try:
+	config = json.loads(configContents)
+except Exception as e:
+	print('Configuration file format error: in "' + configFile + '":', e)
+	sys.exit(1)
 
 dhis = config['dhis']
 baseUrl = dhis['baseurl']
@@ -134,6 +144,15 @@ credentials = (dhis['username'], dhis['password'])
 orgUnitLevel = dhis['orgUnitLevel']
 peerLevel = dhis.get('peerLevel', orgUnitLevel + 1)
 monthCount = dhis.get('count', 1)
+
+try:
+	response = requests.get(api + 'me', auth=credentials)
+	if response.status_code != 200:
+		print('Error connecting to DHIS 2 system at "' + baseUrl + '" with username "' + dhis['username'] + '":', response)
+		sys.exit(1)
+except Exception as e:
+	print('Cannot connect to DHIS 2 system at "' + baseUrl + '" with username "' + dhis['username'] + '":', e)
+	sys.exit(1)
 
 #
 # Convert month string to a sequential number, e.g.:
@@ -161,18 +180,19 @@ startOfCurrentMonth = today.replace(day=1)
 # Handy functions for accessing dhis 2
 #
 def d2get(args, objects):
-	for retry in range(20): # Sometimes gets a [502] error, waiting and retrying helps
+	retry = 0 # Sometimes gets a [502] error, waiting and retrying helps
+	while True:
 		# print(api + args) # debug
 		response = requests.get(api + args.replace('[','%5B').replace(']','%5D'), auth=credentials)
 		try:
 			# print(api + args + ' --', len(response.json()[objects]))
 			return response.json()[objects]
 		except:
-			time.sleep(10) # Wait before retrying
-			continue
-	print( 'Tried: GET ', api + args, '\n', 'Unexpected server response: ', response.text )
-	traceback.print_stack()
-	sys.exit(1)
+			retry = retry + 1
+			if retry > 10:
+				print( 'Tried GET', api + args, '\n' + 'Unexpected server response:', response.text )
+				raise
+			time.sleep(5) # Wait before retrying
 
 def d2post(args, data):
 	# print(api + args, json.dumps(data))
@@ -260,7 +280,10 @@ selectPeriods = ';'.join([ toMonth(i) for i in range(thisMonthNumber-monthCount-
 for i in indicators:
 	if i['id'][0:4] == 'dash':
 		for level in dataOrgUnitLevels:
-			rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
+			try:
+				rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
+			except Exception as e:
+				break # After one error on this indicator, move on to the next indicator.
 			for r in rows:
 				indicator = r[0]
 				orgUnit = r[1]
