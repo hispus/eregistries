@@ -195,7 +195,7 @@ def d2get(args, objects):
 			time.sleep(5) # Wait before retrying
 
 def d2post(args, data):
-	# print(api + args, json.dumps(data))
+	# print(api + args, len(json.dumps(data)), "bytes.")
 	return requests.post(api + args, json=data, auth=credentials)
 
 #
@@ -313,8 +313,40 @@ def addAreaValue(areas, area, orgUnit, value):
 		orgUnits[orgUnit] = []
 	orgUnits[orgUnit].append( value )
 
+#
+# Initialze the output data and counts
+#
 output = { 'dataValues': [] }
+totalImported = 0
+totalUpdated = 0
+totalIgnored = 0
 
+#
+# Periodically flush the output to avoid a POST that is too large
+#
+def flushOutput():
+	global output
+	global totalImported
+	global totalUpdated
+	global totalIgnored
+	for retry in range(20): # Sometimes gets an error, waiting and retrying helps
+		status = d2post( 'dataValueSets', output )
+		success = ( str(status) == '<Response [200]>' or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
+		if success:
+			counts = status.json()['importCount']
+			totalImported = totalImported + counts['imported']
+			totalUpdated = totalUpdated + counts['updated']
+			totalIgnored = totalIgnored + counts['ignored']
+			break
+		else:
+			time.sleep(10) # Wait before retrying
+	if not success:
+		print( 'Data post return status:', str(status), status.json() )
+	output = { 'dataValues': [] }
+
+#
+# Output data to DHIS 2.
+#
 def putOut(orgUnit, month, dataElement, value):
 	output['dataValues'].append( {
 		'orgUnit': orgUnit,
@@ -324,6 +356,8 @@ def putOut(orgUnit, month, dataElement, value):
 		'categoryOptionCombo': defaultCoc,
 		'attributeOptionCombo': defaultCoc
 		} )
+	if len(output['dataValues']) >= 4000:
+		flushOutput()
 
 def putOutByName(orgUnit, month, dataElementName, value):
 	if dataElementName in elementNameId:
@@ -408,26 +442,16 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 				# print( 'OrgUnit:', orgUnit, 'month:', month, 'overall average:', mean, 'overall rank:', percentile ) # debug
 
 #
-# Import the output data into the DHIS 2 system.
+# Finish importing the output data into the DHIS 2 system.
 #
-
-for retry in range(20): # Sometimes gets an error, waiting and retrying helps
-	status = d2post( 'dataValueSets', output )
-	success = ( str(status) == '<Response [200]>' or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
-	if success:
-		break
-	else:
-		time.sleep(10) # Wait before retrying
-if not success:
-	print( 'Data post return status:', str(status), status.json() )
+flushOutput()
 
 #
 # Log the run in the monthly log file (if the log directory exists).
 #
 endTime = datetime.datetime.now()
 logFile = '/usr/local/var/log/dashcalc/dashcalc-' + today.strftime('%Y-%m') + '.log'
-counts = status.json()['importCount']
-logCounts = ' imported: ' + str(counts['imported']) + ', updated: ' + str(counts['updated']) + ', ignored: ' + str(counts['ignored']) + ', indicator errors: ' + str(indicatorErrorCount)
+logCounts = ' imported: ' + str(totalImported) + ', updated: ' + str(totalUpdated) + ', ignored: ' + str(totalIgnored) + ', indicator errors: ' + str(indicatorErrorCount)
 logLine = str(endTime)[:23] + ' ' + baseUrl + ' ' + (str(endTime-startTime).split('.', 2)[0]) + logCounts  + '\n'
 try:
 	open(logFile, 'a+').write(logLine)
