@@ -370,7 +370,7 @@ def threeMonths(periods, monthNumber, valueType):
 	data = []
 	for m in range(monthNumber - 3, monthNumber):
 		if m in periods:
-			data.append(periods[m]['value'])
+			data.append(periods[m][valueType])
 	return data
 
 for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
