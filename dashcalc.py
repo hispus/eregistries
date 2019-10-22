@@ -189,10 +189,10 @@ def d2get(args, objects):
 			return response.json()[objects]
 		except:
 			retry = retry + 1
-			if retry > 10:
+			if retry > 3:
 				print( 'Tried GET', api + args, '\n' + 'Unexpected server response:', response.text )
 				raise
-			time.sleep(5) # Wait before retrying
+			time.sleep(2) # Wait before retrying
 
 def d2post(args, data):
 	# print(api + args, len(json.dumps(data)), "bytes.")
@@ -333,6 +333,7 @@ def flushOutput():
 		status = d2post( 'dataValueSets', output )
 		success = ( str(status) == '<Response [200]>' or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
 		if success:
+			# print( 'POST success:', status.json() ) # debug
 			counts = status.json()['importCount']
 			totalImported = totalImported + counts['imported']
 			totalUpdated = totalUpdated + counts['updated']
@@ -410,7 +411,7 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 				bigRank = sum( [ a <= mean for a in averages ] ) # big is best
 				percentile = int( round( 100 * float( bigRank ) / count ) )
 				smallRank = sum( [ a > mean for a in averages ] ) + 1 # small is best
-				denominatorSum = sum( threeMonths(periods, monthNumber, 'denominator') )
+				denominatorSum = int( sum( threeMonths(periods, monthNumber, 'denominator') ) )
 				putOut( orgUnit, month, uidBase + 'Av', mean )
 				putOut( orgUnit, month, uidBase + 'Q1', q1 )
 				putOut( orgUnit, month, uidBase + 'Q2', q2 )
