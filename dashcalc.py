@@ -302,6 +302,8 @@ for i in indicators:
 						input[peerGroup][indicator][orgUnit] = {}
 					input[peerGroup][indicator][orgUnit][period] = { 'value': value, 'denominator': denominator }
 
+# print('input', input) # debug
+
 #
 # Construct a list of data values to output.
 #
@@ -329,6 +331,7 @@ def flushOutput():
 	global totalImported
 	global totalUpdated
 	global totalIgnored
+	# print('POST: ',json.dumps(output)) # debug
 	for retry in range(20): # Sometimes gets an error, waiting and retrying helps
 		status = d2post( 'dataValueSets', output )
 		success = ( str(status) == '<Response [200]>' or status.json()['importCount']['ignored'] != 0 ) # No error if data elements not found.
@@ -368,7 +371,7 @@ def putOutByName(orgUnit, month, dataElementName, value):
 
 def threeMonths(periods, monthNumber, valueType):
 	data = []
-	for m in range(monthNumber - 3, monthNumber):
+	for m in [monthNumber - 2, monthNumber - 1, monthNumber]:
 		if m in periods:
 			data.append(periods[m][valueType])
 	return data
@@ -423,7 +426,7 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 				putOut( orgUnit, month, uidBase + 'sd', stddev )
 				putOut( orgUnit, month, uidBase + 'DM', allPeersMean )
 				putOut( orgUnit, month, uidBase + 'd3', denominatorSum )
-				# print( 'Month:', month, 'peerGroup:', peerGroup, 'indicator:', indicator, 'orgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile, 'allPeersMean', allPeersMean, 'denominatorSum:', denominatorSum ) # debug
+				# print( 'Month:', month, 'peerGroup:', peerGroup, 'indicator:', indicator, 'orgUnit:', orgUnit, 'mean:', mean, 'smallRank:', smallRank, 'bigRank:', bigRank, 'percentile:', percentile, 'allPeersMean:', allPeersMean, 'denominatorSum:', denominatorSum, '3values:', threeMonths(periods, monthNumber, 'value'), '3denominators:', threeMonths(periods, monthNumber, 'denominator') ) # debug
 
 		for area, orgUnitAverages in areas.items():
 			areaAverages = []
