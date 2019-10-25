@@ -403,7 +403,7 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 			q1 = int( round( averages [ int( (count-1) * .25 ) ] ) )
 			q2 = int( round( averages [ int( (count-1) * .5 ) ] ) )
 			q3 = int( round( averages [ int( (count-1) * .75 ) ] ) )
-			stddev = int( round( numpy.std( averages ) ) )
+			stddev = int( round( numpy.std( averages ) ) ) or 0 # If only 1 sample, return stddev = 0
 			# print( '\nmonth:', month, 'peerGroup:', peerGroup, 'indicator:', indicator, 'averages:', averages, 'q1-3:', q1, q2, q3, 'stddev:', stddev ) # debug
 			uidBase = 'de' + indicator[4:]
 			for orgUnit, periods in orgUnits.items():
