@@ -10,6 +10,7 @@ import statistics
 import numpy
 import traceback
 import time
+import math
 
 ####################################################################################################
 #
@@ -71,6 +72,12 @@ import time
 # months. If there is no "count", the script computes values only for the most
 # recently-completed month.
 #
+# If "maxGetMonths" is configured, the script will limit each query for
+# indicator data to no more than this number of months. This can be used to
+# avoid gateway timeout errors. If there is no "maxGetMonths", the script
+# will get all the months needed for each indicator in a single query.
+# The value of "maxGetMonths" must be no greater than count + 2.
+#
 # The area average for each organisation unit is computed as the average of the
 # averages in that area. This is stored in the data element named 'Overall Average: '
 # follwed by the indicator group name for that area. The area average is compared
@@ -90,13 +97,15 @@ import time
 #     "password": "district",
 #     "orgUnitLevel": 3,
 #     "peerLevel": 6,
-#     "count": 6
+#     "count": 6,
+#     "maxGetMonths": 4
 #   }
 # }
 #
 # Notes:
 # 		"peerLevel" is optional. If not specified, it is set to orgUnitLevel + 1.
 # 		"count" is optional. If not specified, it is set to 1.
+# 		"maxGetMonths" is optional. If not specified, it is set to count + 2.
 #
 # This script writes one log file per month to /usr/local/var/log/dashcalc/dashcalc-yyyy-mm.log
 # (if the directory exists and it has write access). With each run, it appends one
@@ -144,6 +153,7 @@ credentials = (dhis['username'], dhis['password'])
 orgUnitLevel = dhis['orgUnitLevel']
 peerLevel = dhis.get('peerLevel', orgUnitLevel + 1)
 monthCount = dhis.get('count', 1)
+maxGetMonths = dhis.get('maxGetMonths', monthCount + 2)
 
 try:
 	response = requests.get(api + 'me', auth=credentials)
@@ -277,30 +287,34 @@ if indicatorGroupSets:
 #
 indicatorErrorCount = 0
 input = {}
-selectPeriods = ';'.join([ toMonth(i) for i in range(thisMonthNumber-monthCount-2, thisMonthNumber) ])
+queryMonths = monthCount+2
+allPeriods = [ toMonth(i) for i in range(thisMonthNumber-queryMonths, thisMonthNumber) ]
 for i in indicators:
 	if i['id'][0:4] == 'dash':
 		for level in dataOrgUnitLevels:
-			try:
-				rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
-			except Exception as e:
-				indicatorErrorCount = indicatorErrorCount + 1
-				break # After one error on this indicator, move on to the next indicator.
-			for r in rows:
-				indicator = r[0]
-				orgUnit = r[1]
-				period = toNumber( r[2] )
-				value = float( r[3] )
-				denominator = float( r[5] )
-				if orgUnit in peerGroupMap:
-					peerGroup = peerGroupMap[orgUnit]
-					if not peerGroup in input:
-						input[peerGroup] = {}
-					if not indicator in input[peerGroup]:
-						input[peerGroup][indicator] = {}
-					if not orgUnit in input[peerGroup][indicator]:
-						input[peerGroup][indicator][orgUnit] = {}
-					input[peerGroup][indicator][orgUnit][period] = { 'value': value, 'denominator': denominator }
+			for loopCount in range( 0, math.ceil(float(queryMonths)/maxGetMonths) ):
+				lastQueryMonth = (loopCount+1)*maxGetMonths if (loopCount+1)*maxGetMonths < queryMonths else queryMonths
+				selectPeriods = ';'.join(allPeriods[loopCount*maxGetMonths:lastQueryMonth])
+				try:
+					rows = d2get('analytics.json?dimension=dx:' + i['id'] + '&dimension=ou:LEVEL-' + str(level) + '&dimension=pe:' + selectPeriods + '&skipMeta=true&includeNumDen=true', 'rows')
+				except Exception as e:
+					indicatorErrorCount = indicatorErrorCount + 1
+					break # After one error on this indicator, move on to the next indicator.
+				for r in rows:
+					indicator = r[0]
+					orgUnit = r[1]
+					period = toNumber( r[2] )
+					value = float( r[3] )
+					denominator = float( r[5] )
+					if orgUnit in peerGroupMap:
+						peerGroup = peerGroupMap[orgUnit]
+						if not peerGroup in input:
+							input[peerGroup] = {}
+						if not indicator in input[peerGroup]:
+							input[peerGroup][indicator] = {}
+						if not orgUnit in input[peerGroup][indicator]:
+							input[peerGroup][indicator][orgUnit] = {}
+						input[peerGroup][indicator][orgUnit][period] = { 'value': value, 'denominator': denominator }
 
 # print('input', input) # debug
 
@@ -380,7 +394,6 @@ for monthNumber in range(thisMonthNumber - monthCount, thisMonthNumber):
 	month = toMonth(monthNumber)
 	for peerGroup, indicators in input.items():
 		areas = {} # { area: { orgUnit: [ average1, average2, ... ] } }
-
 		for indicator, orgUnits in indicators.items():
 			averages = []
 			allPeersValues = []
